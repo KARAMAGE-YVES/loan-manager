@@ -89,7 +89,7 @@ export default function CashbookPage() {
           </span>
         )}
 
-{cashbook.locked && cashbook.id && (
+{/* {cashbook.locked && cashbook.id && (
   <button
     onClick={() =>
       window.open(
@@ -101,7 +101,7 @@ export default function CashbookPage() {
   >
     Download Daily Report (PDF)
   </button>
-)}
+)} */}
         {/* {cashbook.locked && (
   <button
     onClick={async () => {
