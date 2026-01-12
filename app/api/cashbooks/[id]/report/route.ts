@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateCashbookPDF } from "@/lib/pdf/cashbookReport";
 
@@ -8,54 +8,35 @@ const supabase = createClient(
 );
 
 export async function GET(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  context: { params: { id: string } }
 ) {
-  const cashbookId = params.id;
+  const cashbookId = context.params.id;
 
-  if (!params.id) {
-    return NextResponse.json(
-      { error: "Missing cashbook id" },
-      { status: 400 }
-    );
-  }
-  
-
-  /* 1️⃣ Fetch cashbook safely */
-  const { data: cashbook, error: cashbookError } = await supabase
+  /* 1️⃣ Fetch cashbook */
+  const { data: cashbook, error: cbError } = await supabase
     .from("cashbooks")
     .select("*")
     .eq("id", cashbookId)
-    .maybeSingle();
+    .single();
 
-  if (cashbookError) {
-    return NextResponse.json(
-      { error: cashbookError.message },
-      { status: 500 }
-    );
-  }
+  if (cbError || !cashbook)
+    return NextResponse.json({ error: "Cashbook not found" }, { status: 404 });
 
-  if (!cashbook) {
-    return NextResponse.json(
-      { error: "Cashbook not found" },
-      { status: 404 }
-    );
-  }
-
-  if (!cashbook.locked) {
+  if (!cashbook.locked)
     return NextResponse.json(
       { error: "Cashbook must be locked first" },
       { status: 403 }
     );
-  }
 
   /* 2️⃣ Fetch receipts */
-  const { data: receipts, error: receiptsError } = await supabase
+  const { data: receipts } = await supabase
     .from("payments")
     .select(`
       amount,
       paid_at,
-      loans (
+      loan:loans (
+        borrower_id,
         borrowers (
           full_name,
           phone
@@ -64,25 +45,11 @@ export async function GET(
     `)
     .eq("cashbook_id", cashbookId);
 
-  if (receiptsError) {
-    return NextResponse.json(
-      { error: receiptsError.message },
-      { status: 500 }
-    );
-  }
-
   /* 3️⃣ Fetch expenses */
-  const { data: expenses, error: expensesError } = await supabase
+  const { data: expenses } = await supabase
     .from("expenses")
     .select("description, amount, created_at")
     .eq("cashbook_id", cashbookId);
-
-  if (expensesError) {
-    return NextResponse.json(
-      { error: expensesError.message },
-      { status: 500 }
-    );
-  }
 
   /* 4️⃣ Generate PDF */
   const pdfBuffer = generateCashbookPDF({
@@ -94,7 +61,7 @@ export async function GET(
   return new NextResponse(pdfBuffer, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="William-Loans-${cashbook.date}.pdf"`,
+      "Content-Disposition": `attachment; filename="cashbook-${cashbook.date}.pdf"`,
     },
   });
 }
