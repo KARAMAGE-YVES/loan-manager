@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 
+type CashbookData = {
+  cashbook: any;
+  payments: any[];
+  expenses: any[];
+};
+
 export default function CashbookPage() {
-  const [data, setData] = useState<{
-    cashbook: any;
-    payments: any[];
-    expenses: any[];
-  } | null>(null);
+  const [data, setData] = useState<CashbookData | null>(null);
   const [loading, setLoading] = useState(true);
   const [desc, setDesc] = useState("");
   const [amount, setAmount] = useState("");
@@ -16,19 +18,21 @@ export default function CashbookPage() {
     setLoading(true);
     const res = await fetch("/api/cashbooks");
     const json = await res.json();
-    setData(json.error ? null : json);
+    setData(json?.error ? null : json);
     setLoading(false);
   };
 
   const lockCashbook = async () => {
+    if (!data?.cashbook) return;
+
     await fetch("/api/cashbooks/lock", { method: "POST" });
     fetchCashbook();
-    console.log("CASHBOOK ID:", cashbook.id);
 
+    console.log("CASHBOOK ID:", data.cashbook.id);
   };
 
   const addExpense = async () => {
-    if (!desc || !amount || data?.cashbook.locked) return;
+    if (!data || !desc || !amount || data.cashbook.locked) return;
 
     await fetch("/api/expenses", {
       method: "POST",
@@ -59,10 +63,12 @@ export default function CashbookPage() {
     (s, p) => s + Number(p.amount || 0),
     0
   );
+
   const totalExpenses = expenses.reduce(
     (s, e) => s + Number(e.amount || 0),
     0
   );
+
   const closingBalance =
     Number(cashbook.opening_balance) +
     totalReceipts -
@@ -78,7 +84,6 @@ export default function CashbookPage() {
         {!cashbook.locked ? (
           <button
             onClick={lockCashbook}
-            
             className="px-4 py-2 bg-gray-900 text-white rounded-xl"
           >
             Lock Cashbook
@@ -88,42 +93,6 @@ export default function CashbookPage() {
             LOCKED
           </span>
         )}
-
-{/* {cashbook.locked && cashbook.id && (
-  <button
-    onClick={() =>
-      window.open(
-        `/api/cashbooks/${cashbook.id}/report`,
-        "_blank"
-      )
-    }
-    className="px-4 py-2 bg-indigo-600 text-white rounded-lg"
-  >
-    Download Daily Report (PDF)
-  </button>
-)} */}
-        {/* {cashbook.locked && (
-  <button
-    onClick={async () => {
-      const res = await fetch("/api/cashbooks/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cashbook_id: cashbook.id }),
-      });
-      const json = await res.json();
-      if (json.pdfDataUri) {
-        const link = document.createElement("a");
-        link.href = json.pdfDataUri;
-        link.download = `Cashbook-${cashbook.date}.pdf`;
-        link.click();
-      }
-    }}
-    className="px-4 py-2 bg-blue-700 text-white rounded-xl ml-2"
-  >
-    Generate PDF
-  </button>
-)} */}
-
       </div>
 
       <div className="grid grid-cols-4 gap-6">
