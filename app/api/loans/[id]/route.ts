@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -10,14 +10,17 @@ type Context = {
   params: Promise<{ id: string }>;
 };
 
-export async function PATCH(req: Request, ctx: Context) {
+export async function PATCH(req: NextRequest, ctx: Context) {
   const { id } = await ctx.params;
-  const body = await req.json();
 
-  const { principal, status, notes } = body;
+  if (!id) {
+    return NextResponse.json({ error: "Missing loan ID" }, { status: 400 });
+  }
 
-  const interest = principal * 0.2;
-  const total_to_repay = principal + interest;
+  const { principal, status, notes } = await req.json();
+
+  const interest = Number(principal) * 0.2;
+  const total_to_repay = Number(principal) + interest;
 
   const { error } = await supabase
     .from("loans")
@@ -28,7 +31,7 @@ export async function PATCH(req: Request, ctx: Context) {
       remaining: total_to_repay,
       status,
       notes,
-      updated_at: new Date(),
+      updated_at: new Date().toISOString(),
     })
     .eq("id", id);
 
@@ -39,10 +42,17 @@ export async function PATCH(req: Request, ctx: Context) {
   return NextResponse.json({ success: true });
 }
 
-export async function DELETE(_: Request, ctx: Context) {
+export async function DELETE(_: NextRequest, ctx: Context) {
   const { id } = await ctx.params;
 
-  const { error } = await supabase.from("loans").delete().eq("id", id);
+  if (!id) {
+    return NextResponse.json({ error: "Missing loan ID" }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from("loans")
+    .delete()
+    .eq("id", id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

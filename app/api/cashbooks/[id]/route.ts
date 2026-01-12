@@ -6,39 +6,65 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-interface ContextParams {
-  params: { id: string };
+type Context = {
+  params: Promise<{ id: string }>;
+};
+
+export async function PATCH(req: NextRequest, ctx: Context) {
+  try {
+    const { id } = await ctx.params;
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing cashbook ID" }, { status: 400 });
+    }
+
+    const { total_receipts, total_payments, locked } = await req.json();
+
+    const closing_balance = Number(total_receipts) - Number(total_payments);
+
+    const { data, error } = await supabase
+      .from("cashbooks")
+      .update({
+        total_receipts,
+        total_payments,
+        closing_balance,
+        locked,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return NextResponse.json(data);
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message },
+      { status: 500 }
+    );
+  }
 }
 
-// export async function PATCH(req: NextRequest, context: ContextParams) {
-//   try {
-//     const { id } = context.params;
-//     const { total_receipts, total_payments, locked } = await req.json();
+export async function DELETE(_: NextRequest, ctx: Context) {
+  try {
+    const { id } = await ctx.params;
 
-//     const closing_balance = total_receipts - total_payments;
+    if (!id) {
+      return NextResponse.json({ error: "Missing cashbook ID" }, { status: 400 });
+    }
 
-//     const { data: cashbook, error } = await supabase
-//       .from("cashbooks")
-//       .update({ total_receipts, total_payments, closing_balance, locked })
-//       .eq("id", id)
-//       .select()
-//       .single();
+    const { error } = await supabase
+      .from("cashbooks")
+      .delete()
+      .eq("id", id);
 
-//     if (error) throw error;
-//     return NextResponse.json(cashbook);
-//   } catch (err: any) {
-//     return NextResponse.json({ error: err.message }, { status: 500 });
-//   }
-// }
+    if (error) throw error;
 
-// export async function DELETE(req: NextRequest, context: ContextParams) {
-//   try {
-//     const { id } = context.params;
-//     const { error } = await supabase.from("cashbooks").delete().eq("id", id);
-
-//     if (error) throw error;
-//     return NextResponse.json({ message: "Cashbook deleted" });
-//   } catch (err: any) {
-//     return NextResponse.json({ error: err.message }, { status: 500 });
-//   }
-// }
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message },
+      { status: 500 }
+    );
+  }
+}
