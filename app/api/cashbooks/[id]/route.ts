@@ -18,17 +18,48 @@ export async function PATCH(req: NextRequest, ctx: Context) {
       return NextResponse.json({ error: "Missing cashbook ID" }, { status: 400 });
     }
 
-    const { total_receipts, total_payments, locked } = await req.json();
+    // 1️⃣ Get cashbook opening balance
+    const { data: cashbook, error: cbError } = await supabase
+      .from("cashbooks")
+      .select("opening_balance")
+      .eq("id", id)
+      .single();
 
-    const closing_balance = Number(total_receipts) - Number(total_payments);
+    if (cbError || !cashbook) {
+      return NextResponse.json({ error: "Cashbook not found" }, { status: 404 });
+    }
 
+    // 2️⃣ Sum payments (receipts)
+    const { data: payments } = await supabase
+      .from("payments")
+      .select("amount")
+      .eq("cashbook_id", id);
+
+    const total_receipts =
+      payments?.reduce((sum, p) => sum + Number(p.amount), 0) ?? 0;
+
+    // 3️⃣ Sum expenses
+    const { data: expenses } = await supabase
+      .from("expenses")
+      .select("amount")
+      .eq("cashbook_id", id);
+
+    const total_payments =
+      expenses?.reduce((sum, e) => sum + Number(e.amount), 0) ?? 0;
+
+    // 4️⃣ Correct accounting formula
+    const closing_balance =
+      Number(cashbook.opening_balance) +
+      total_receipts -
+      total_payments;
+
+    // 5️⃣ Update cashbook
     const { data, error } = await supabase
       .from("cashbooks")
       .update({
         total_receipts,
         total_payments,
         closing_balance,
-        locked,
       })
       .eq("id", id)
       .select()
@@ -38,10 +69,7 @@ export async function PATCH(req: NextRequest, ctx: Context) {
 
     return NextResponse.json(data);
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
@@ -62,9 +90,6 @@ export async function DELETE(_: NextRequest, ctx: Context) {
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
