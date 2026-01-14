@@ -42,25 +42,14 @@ export default function CashbooksHistoryPage() {
               <td className="p-3">{c.opening_balance.toLocaleString()}</td>
               <td className="p-3">{c.closing_balance?.toLocaleString() || 0}</td>
               <td className="p-3">
-                <button
-                  onClick={async () => {
-                    const res = await fetch("/api/cashbooks/pdf", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ cashbook_id: c.id }),
-                    });
-                    const json = await res.json();
-                    if (json.pdfDataUri) {
-                      const link = document.createElement("a");
-                      link.href = json.pdfDataUri;
-                      link.download = `Cashbook-${c.date}.pdf`;
-                      link.click();
-                    }
-                  }}
-                  className="px-3 py-1 bg-blue-600 text-white rounded-xl"
-                >
-                  View PDF
-                </button>
+              <button
+  onClick={() => {
+    window.open(`/api/cashbooks/${c.id}/report`, "_blank");
+  }}
+  className="px-3 py-1 bg-blue-600 text-white rounded-xl"
+>
+  Download PDF
+</button>
               </td>
             </tr>
           ))}

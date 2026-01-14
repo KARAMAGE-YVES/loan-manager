@@ -76,7 +76,7 @@ export default function CashbookPage() {
   const handleOwnerTransaction = async (type: "CAPITAL_IN" | "DRAWING") => {
     if (!data || !ownerAmount || data.cashbook.locked) return;
 
-    const res = await fetch("/api/owner_transactions", {
+    const res = await fetch("/api/owner-transactions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

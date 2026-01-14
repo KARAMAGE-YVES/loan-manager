@@ -19,7 +19,7 @@ export async function POST(req: Request) {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // 1️⃣ Get today's cashbook (NOW ALSO CHECK LOCK)
+    // 1️⃣ Get today's cashbook & check lock
     const { data: cashbook, error: cashbookError } = await supabase
       .from("cashbooks")
       .select("id, locked")
@@ -33,7 +33,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔒 BLOCK IF CASHBOOK IS LOCKED
     if (cashbook.locked) {
       return NextResponse.json(
         { error: "Cashbook is locked. No payments allowed." },
@@ -62,7 +61,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3️⃣ Insert payment (LINKED TO CASHBOOK)
+    // 3️⃣ Insert payment (THIS IS THE MAIN ACTION)
     const { error: paymentError } = await supabase
       .from("payments")
       .insert({
@@ -80,7 +79,7 @@ export async function POST(req: Request) {
     const newAmountPaid = loan.amount_paid + amount;
     const newRemaining = loan.remaining - amount;
 
-    await supabase
+    const { error: loanUpdateError } = await supabase
       .from("loans")
       .update({
         amount_paid: newAmountPaid,
@@ -90,52 +89,12 @@ export async function POST(req: Request) {
       })
       .eq("id", loan_id);
 
-// 🔁 Recalculate cashbook totals
-const { data: payments } = await supabase
-  .from("payments")
-  .select("amount")
-  .eq("cashbook_id", cashbook.id);
+    if (loanUpdateError) {
+      throw loanUpdateError;
+    }
 
-const { data: expenses } = await supabase
-  .from("expenses")
-  .select("amount")
-  .eq("cashbook_id", cashbook.id);
-
-const total_receipts =
-  payments?.reduce((s, p) => s + Number(p.amount), 0) ?? 0;
-
-const total_payments =
-  expenses?.reduce((s, e) => s + Number(e.amount), 0) ?? 0;
-
-// Get opening balance
-const { data: cb } = await supabase
-  .from("cashbooks")
-  .select("opening_balance")
-  .eq("id", cashbook.id)
-  .single();
-
-const closing_balance =
-  Number(cb.opening_balance) +
-  total_receipts -
-  total_payments;
-
-// Update DB
-await supabase
-  .from("cashbooks")
-  .update({
-    total_receipts,
-    total_payments,
-    closing_balance,
-  })
-  .eq("id", cashbook.id);
-
-
-
-      await fetch(
-        `${process.env.NEXT_PUBLIC_SITE_URL}/api/cashbooks/${cashbook.id}`,
-        { method: "PATCH" }
-      );
-      
+    // ✅ DO NOT recalculate cashbook here
+    // ✅ /api/cashbooks GET will handle it consistently
 
     return NextResponse.json({ success: true });
   } catch (err) {

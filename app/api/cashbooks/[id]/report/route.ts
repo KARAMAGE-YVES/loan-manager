@@ -14,24 +14,18 @@ export async function GET(
   const { id: cashbookId } = await context.params;
 
   if (!cashbookId) {
-    return NextResponse.json(
-      { error: "Missing cashbook ID" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing cashbook ID" }, { status: 400 });
   }
 
-  // 1️⃣ Fetch cashbook
-  const { data: cashbook, error: cashbookError } = await supabase
+  // 1️⃣ Cashbook
+  const { data: cashbook } = await supabase
     .from("cashbooks")
     .select("*")
     .eq("id", cashbookId)
     .single();
 
-  if (cashbookError || !cashbook) {
-    return NextResponse.json(
-      { error: "Cashbook not found" },
-      { status: 404 }
-    );
+  if (!cashbook) {
+    return NextResponse.json({ error: "Cashbook not found" }, { status: 404 });
   }
 
   if (!cashbook.locked) {
@@ -41,32 +35,58 @@ export async function GET(
     );
   }
 
-  // 2️⃣ Fetch PAYMENTS (receipts)
+  // 2️⃣ Fetch transactions
   const { data: payments } = await supabase
     .from("payments")
     .select(`
       amount,
       paid_at,
       loan:loans (
-        borrower:borrowers (
-          full_name,
-          phone
-        )
+        borrower:borrowers ( full_name )
       )
     `)
-    .eq("cashbook_id", cashbookId)
-    .order("paid_at", { ascending: true });
+    .eq("cashbook_id", cashbookId);
 
-  // 3️⃣ Fetch EXPENSES
   const { data: expenses } = await supabase
     .from("expenses")
     .select("description, amount, created_at")
-    .eq("cashbook_id", cashbookId)
-    .order("created_at", { ascending: true });
+    .eq("cashbook_id", cashbookId);
 
-  // 4️⃣ Create PDF
+  const { data: ownerTx } = await supabase
+    .from("owner_transactions")
+    .select("type, amount, created_at")
+    .eq("cashbook_id", cashbookId);
+
+  // 3️⃣ Normalize into ONE list (mirrors UI)
+  const rows = [
+    ...(payments || []).map((p) => ({
+      time: p.paid_at,
+      type: "Receipt",
+      description: `${p.loan?.borrower?.full_name ?? "Borrower"} repayment`,
+      amount: p.amount,
+    })),
+    ...(expenses || []).map((e) => ({
+      time: e.created_at,
+      type: "Expense",
+      description: e.description,
+      amount: e.amount,
+    })),
+    ...(ownerTx || []).map((t) => ({
+      time: t.created_at,
+      type: t.type === "CAPITAL_IN" ? "Capital In" : "Withdraw",
+      description:
+        t.type === "CAPITAL_IN"
+          ? "Owner Injection"
+          : "Owner Withdrawal",
+      amount: t.amount,
+    })),
+  ].sort(
+    (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
+  );
+
+  // 4️⃣ PDF
   const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595, 842]); // A4
+  const page = pdfDoc.addPage([595, 842]);
   const { height } = page.getSize();
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -74,12 +94,7 @@ export async function GET(
 
   let y = height - 50;
 
-  const drawText = (
-    text: string,
-    size = 10,
-    bold = false,
-    x = 50
-  ) => {
+  const draw = (text: string, x = 50, size = 10, bold = false) => {
     page.drawText(text, {
       x,
       y,
@@ -87,64 +102,36 @@ export async function GET(
       font: bold ? boldFont : font,
       color: rgb(0, 0, 0),
     });
-    y -= size + 6;
   };
 
   // Header
-  drawText("William Loans", 20, true);
-  drawText("Daily Cashbook Report", 14, true);
-  drawText(`Date: ${new Date(cashbook.date).toDateString()}`);
-  y -= 10;
+  draw("William Loans", 50, 20, true); y -= 24;
+  draw("Daily Cashbook Report", 50, 14, true); y -= 18;
+  draw(`Date: ${new Date(cashbook.date).toDateString()}`); y -= 20;
 
   // Summary
-  drawText("Summary", 14, true);
-  drawText(`Opening Balance: ${Number(cashbook.opening_balance).toLocaleString()} RWF`);
-  drawText(`Total Receipts: ${Number(cashbook.total_receipts).toLocaleString()} RWF`);
-  drawText(`Total Expenses: ${Number(cashbook.total_payments).toLocaleString()} RWF`);
-  drawText(`Closing Balance: ${Number(cashbook.closing_balance).toLocaleString()} RWF`);
-  y -= 15;
+  draw("Summary", 50, 14, true); y -= 16;
+  draw(`Opening Balance: ${cashbook.opening_balance.toLocaleString()} RWF`); y -= 14;
+  draw(`Receipts: ${cashbook.total_receipts.toLocaleString()} RWF`); y -= 14;
+  draw(`Expenses: ${cashbook.total_payments.toLocaleString()} RWF`); y -= 14;
+  draw(`Closing Balance: ${cashbook.closing_balance.toLocaleString()} RWF`); y -= 20;
 
   // Table header
-  page.drawText("Name", { x: 50, y, size: 11, font: boldFont });
-  page.drawText("Type", { x: 220, y, size: 11, font: boldFont });
-  page.drawText("Amount", { x: 300, y, size: 11, font: boldFont });
-  page.drawText("Time", { x: 400, y, size: 11, font: boldFont });
-  y -= 12;
+  draw("Description", 50, 11, true);
+  draw("Type", 260, 11, true);
+  draw("Amount", 350, 11, true);
+  draw("Time", 450, 11, true);
+  y -= 14;
 
-  // Receipts
-  for (const p of payments || []) {
-    page.drawText(
-      p.loan?.borrower?.full_name ?? "-",
-      { x: 50, y, size: 9, font }
-    );
-    page.drawText("Receipt", { x: 220, y, size: 9, font });
-    page.drawText(
-      `${Number(p.amount).toLocaleString()} RWF`,
-      { x: 300, y, size: 9, font }
-    );
-    page.drawText(
-      new Date(p.paid_at).toLocaleTimeString(),
-      { x: 400, y, size: 9, font }
-    );
-    y -= 14;
+  // Rows
+  for (const r of rows) {
+    draw(r.description, 50, 9);
+    draw(r.type, 260, 9);
+    draw(`${Number(r.amount).toLocaleString()} RWF`, 350, 9);
+    draw(new Date(r.time).toLocaleTimeString(), 450, 9);
+    y -= 12;
   }
 
-  // Expenses
-  for (const e of expenses || []) {
-    page.drawText(e.description ?? "-", { x: 50, y, size: 9, font });
-    page.drawText("Expense", { x: 220, y, size: 9, font });
-    page.drawText(
-      `${Number(e.amount).toLocaleString()} RWF`,
-      { x: 300, y, size: 9, font }
-    );
-    page.drawText(
-      new Date(e.created_at).toLocaleTimeString(),
-      { x: 400, y, size: 9, font }
-    );
-    y -= 14;
-  }
-
-  // 5️⃣ Return PDF (VERCEL-SAFE)
   const pdfBytes = await pdfDoc.save();
 
   return new NextResponse(Buffer.from(pdfBytes), {
